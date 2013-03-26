@@ -147,26 +147,22 @@ function layout($layout) {
 function U($url='',$vars='',$suffix=true,$redirect=false,$domain=false) {
     // 解析URL
     $info =  parse_url($url);
-    $url   =  !empty($info['path'])?$info['path']:ACTION_NAME;
-    if(false !== strpos($url,'@')) { // 解析域名
-        list($url,$host)    =   explode('@',$info['path'], 2);
+    $url =  !empty($info['path'])?$info['path']:ACTION_NAME;
+    if(isset($info['fragment'])) { // 解析锚点
+        $anchor =   $info['fragment'];
+        if(false !== strpos($anchor,'?')) { // 解析参数
+            list($anchor,$info['query']) = explode('?',$anchor,2);
+        }        
+        if(false !== strpos($anchor,'@')) { // 解析域名
+            list($anchor,$host) =   explode('@',$anchor, 2);
+        }
+    }elseif(false !== strpos($url,'@')) { // 解析域名
+        list($url,$host) =   explode('@',$info['path'], 2);
     }
+    
     // 解析子域名
     if(isset($host)) {
         $domain = $host.(strpos($host,'.')?'':strstr($_SERVER['HTTP_HOST'],'.'));
-    }elseif($domain===true){
-        $domain = $_SERVER['HTTP_HOST'];
-        if(C('APP_SUB_DOMAIN_DEPLOY') ) { // 开启子域名部署
-            $domain = $domain=='localhost'?'localhost':'www'.strstr($_SERVER['HTTP_HOST'],'.');
-            // '子域名'=>array('项目[/分组]');
-            foreach (C('APP_SUB_DOMAIN_RULES') as $key => $rule) {
-                if(false === strpos($key,'*') && 0=== strpos($url,$rule[0])) {
-                    $domain = $key.strstr($domain,'.'); // 生成对应子域名
-                    $url   =  substr_replace($url,'',0,strlen($rule[0]));
-                    break;
-                }
-            }
-        }
     }
 
     // 解析参数
@@ -217,35 +213,89 @@ function U($url='',$vars='',$suffix=true,$redirect=false,$domain=false) {
             }
         }
     }
-
+    
+	if(!isset($host) && $domain===true){
+        $domain = $_SERVER['HTTP_HOST'];
+        if(C('APP_SUB_DOMAIN_DEPLOY') ) { // 开启子域名部署
+        	$rule = C('APP_SUB_DOMAIN_RULES');
+        	if (isset($var[C('VAR_GROUP')])) {
+	        	if (isset($rule[$var[C('VAR_GROUP')]])){
+	        		$domain = $var[C('VAR_GROUP')].strstr($domain,'.');
+	        		unset($var[C('VAR_GROUP')]);
+	        	}
+        	} else {
+        		$defaultgroup = C('DEFAULT_GROUP')?C('DEFAULT_GROUP'):'www';
+        		if (isset($rule[$defaultgroup])){
+	        		$domain = $defaultgroup.strstr($domain,'.');
+	        	}
+        	}
+        }
+    }
+    $flag=true;
     if(C('URL_MODEL') == 0) { // 普通模式URL转换
-        $url   =  __APP__.'?'.http_build_query(array_reverse($var));
+        $url = __APP__.'?'.http_build_query(array_reverse($var));
         if(!empty($vars)) {
             $vars = urldecode(http_build_query($vars));
-            $url   .= '&'.$vars;
+            $url .= '&'.$vars;
         }
-    }else{ // PATHINFO模式或者兼容URL模式
+        $flag=false;
+    }elseif (C('URL_MODEL') == 2 && C('URL_ROUTER_ON')){ //存在路由时反向翻译
+        $routes = C('URL_ROUTE_RULES');
+        if (false === strpos('/', $url)) {
+            $url = implode($depr,array_reverse($var));
+        }
+        $_url=array_merge(parseUrl($url), $vars);
+        foreach ($routes as $rule=>$r_route){
+            $r_route = str_replace('/', $depr, $r_route);
+            $_route = parseUrl(str_replace(':', '~',$r_route));
+            if(url_compare($_url, $_route))break;
+        }
+        if(url_compare($_url, $_route)){
+            foreach ($_route as $key=>$val){
+                if($key==C('VAR_MODULE')||$key==C('VAR_ACTION'))continue;
+                if( preg_match("/~/",$val) ){
+                    $rule = preg_replace("/(\(\\\[\w+]\+\))/",$_url[$key],$rule,1);
+                }
+            }
+            //去掉最后的"/"
+            $url = __APP__.'/'.ltrim(rtrim(trim($rule,'/'), '$'), '^');
+            $url = str_replace('\\', '', $url);
+            $flag = false;
+        }
+    }
+    
+    if ($flag) { // PATHINFO模式或者兼容URL模式
+    		if (empty($vars) && C('DEFAULT_MODULE')==$var[C('VAR_MODULE')] 
+    			&& C('DEFAULT_ACTION')==$var[C('VAR_ACTION')]) {
+    				unset($var[C('VAR_MODULE')]);
+    				unset($var[C('VAR_ACTION')]);
+    			}
+    			
         if(isset($route)) {
-            $url   =  __APP__.'/'.rtrim($url,$depr);
+            $url = __APP__.'/'.rtrim($url,$depr);
         }else{
-            $url   =  __APP__.'/'.implode($depr,array_reverse($var));
+            $url = __APP__.'/'.implode($depr,array_reverse($var));
         }
         if(!empty($vars)) { // 添加参数
-            foreach ($vars as $var => $val)
-                $url .= $depr.$var . $depr . $val;
+            foreach ($vars as $var => $val){
+                if('' !== trim($val))   $url .= $depr . $var . $depr . urlencode($val);
+            }                
         }
         if($suffix) {
-            $suffix   =  $suffix===true?C('URL_HTML_SUFFIX'):$suffix;
+            $suffix = $suffix===true?C('URL_HTML_SUFFIX'):$suffix;
             if($pos = strpos($suffix, '|')){
                 $suffix = substr($suffix, 0, $pos);
             }
-            if($suffix && $url[1]){
-                $url  .=  '.'.ltrim($suffix,'.');
+            if($suffix && '/' != substr($url,-1)){
+                $url .= '.'.ltrim($suffix,'.');
             }
         }
     }
+    if(isset($anchor)){
+        $url .= '#'.$anchor;
+    }
     if($domain) {
-        $url   =  (is_ssl()?'https://':'http://').$domain.$url;
+        $url = (is_ssl()?'https://':'http://').$domain.$url;
     }
     if($redirect) // 直接跳转URL
         redirect($url);
