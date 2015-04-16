@@ -97,7 +97,10 @@ class Dispatcher {
         if(!empty($_SERVER['PATH_INFO'])) {
             tag('path_info');
             $part =  pathinfo($_SERVER['PATH_INFO']);
-            define('__EXT__', isset($part['extension'])?strtolower($part['extension']):'');
+            if(C('URL_HTML_SUFFIX'))
+            	define('__EXT__', isset($part['extension'])?strtolower($part['extension']):'');
+            else 
+            	define('__EXT__','');
             if(__EXT__){
                 if(C('URL_DENY_SUFFIX') && preg_match('/\.('.trim(C('URL_DENY_SUFFIX'),'.').')$/i', $_SERVER['PATH_INFO'])){
                     send_http_status(404);
@@ -105,8 +108,6 @@ class Dispatcher {
                 }
                 if(C('URL_HTML_SUFFIX')) {
                     $_SERVER['PATH_INFO'] = preg_replace('/\.('.trim(C('URL_HTML_SUFFIX'),'.').')$/i', '', $_SERVER['PATH_INFO']);
-                }else{
-                    $_SERVER['PATH_INFO'] = preg_replace('/.'.__EXT__.'$/i','',$_SERVER['PATH_INFO']);
                 }
             }
 
@@ -129,7 +130,8 @@ class Dispatcher {
                 }
                 $var[C('VAR_ACTION')]  =   array_shift($paths);
                 // 解析剩余的URL参数
-                preg_replace('@(\w+)\/([^\/]+)@e', '$var[\'\\1\']=strip_tags(\'\\2\');', implode('/',$paths));
+                //preg_replace('@(\w+)\/([^\/]+)@e', '$var[\'\\1\']=strip_tags(\'\\2\');', implode('/',$paths));
+                preg_replace_callback('@(\w+)\/([^\/]+)@', function($m) use (&$var) {$var[$m[1]]=strip_tags($m[2]);}, implode('/',$paths));
                 $_GET   =  array_merge($var,$_GET);
             }
             define('__INFO__',$_SERVER['PATH_INFO']);
@@ -152,6 +154,7 @@ class Dispatcher {
         // 定义项目基础加载路径
         define('BASE_LIB_PATH', (defined('GROUP_NAME') && C('APP_GROUP_MODE')==1) ? APP_PATH.C('APP_GROUP_PATH').'/'.GROUP_NAME.'/' : LIB_PATH);
         if(defined('GROUP_NAME')) {
+            C('CACHE_PATH',CACHE_PATH.GROUP_NAME.'/');
             if(1 == C('APP_GROUP_MODE')){ // 独立分组模式
                 $config_path    =   BASE_LIB_PATH.'Conf/';
                 $common_path    =   BASE_LIB_PATH.'Common/';

@@ -279,8 +279,8 @@ class Db {
     protected function parseSet($data) {
         foreach ($data as $key=>$val){
             if(is_array($val) && 'exp' == $val[0]){
-                $set[]  =   $this->parseKey($key).'='.$this->escapeString($val[1]);
-            }elseif(is_scalar($val)) { // 过滤非标量数据
+                $set[]  =   $this->parseKey($key).'='.$val[1];
+            }elseif(is_scalar($val) || is_null(($val))) { // 过滤非标量数据
               if(C('DB_BIND_PARAM') && 0 !== strpos($val,':')){
                 $name   =   md5($key);
                 $set[]  =   $this->parseKey($key).'=:'.$name;
@@ -423,6 +423,9 @@ class Db {
             }
             foreach ($where as $key=>$val){
                 $whereStr .= '( ';
+                if(is_numeric($key)){
+                    $key  = '_complex';
+                }                    
                 if(0===strpos($key,'_')) {
                     // 解析特殊条件表达式
                     $whereStr   .= $this->parseThinkWhere($key,$val);
@@ -547,7 +550,7 @@ class Db {
                 break;
             case '_complex':
                 // 复合查询条件
-                $whereStr = substr($this->parseWhere($val),6);
+                $whereStr   =   is_string($val)? $val : substr($this->parseWhere($val),6);
                 break;
             case '_query':
                 // 字符串模式查询条件
@@ -598,7 +601,7 @@ class Db {
             }
         }
 		//将__TABLE_NAME__这样的字符串替换成正规的表名,并且带上前缀和后缀
-		$joinStr = preg_replace("/__([A-Z_-]+)__/esU",C("DB_PREFIX").".strtolower('$1')",$joinStr);
+		$joinStr = preg_replace_callback("/__([A-Z_-]+)__/sU",function($m){return C("DB_PREFIX").strtolower($m[1]);},$joinStr);
         return $joinStr;
     }
 
@@ -697,8 +700,8 @@ class Db {
         foreach ($data as $key=>$val){
             if(is_array($val) && 'exp' == $val[0]){
                 $fields[]   =  $this->parseKey($key);
-                $values[]   =  $this->escapeString($val[1]);
-            }elseif(is_scalar($val)) { // 过滤非标量数据
+                $values[]   = $this->escapeString($val[1]);
+            }elseif(is_scalar($val) || is_null(($val))) { // 过滤非标量数据
               $fields[]   =  $this->parseKey($key);
               if(C('DB_BIND_PARAM') && 0 !== strpos($val,':')){
                 $name       =   md5($key);
